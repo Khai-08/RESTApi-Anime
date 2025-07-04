@@ -89,7 +89,7 @@ class AuthenticationController extends ResourceController
             'verified' => 0
         ]);
 
-        $tableName = "anime_{$userId}";
+        $tableName = "anime_user_{$userId}";
         $createTableSQL = "
             CREATE TABLE `$tableName` (
                 `id` INT(255) NOT NULL AUTO_INCREMENT,
@@ -100,7 +100,8 @@ class AuthenticationController extends ResourceController
                 `episodes` INT(255) NOT NULL,
                 `watched` INT(255) NOT NULL,
                 `status` ENUM('Planned to Watch','Not Started','Completed','On Going','Watching','Dropped','On Hold','TBD') NOT NULL DEFAULT 'TBD',
-                `date_added` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         ";
