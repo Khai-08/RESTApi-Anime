@@ -3,6 +3,8 @@
 namespace App\Controllers;
 
 use CodeIgniter\RESTful\ResourceController;
+use App\Models\AuthUser;
+use App\Models\Anime;
 use \Firebase\JWT\JWT;
 use \Firebase\JWT\Key;
 
@@ -10,60 +12,68 @@ class AnimeController extends ResourceController
 {
     public function create()
     {
-        $key = getenv('JWT_SECRET');
         $authHeader = $this->request->getHeaderLine('Authorization');
-
         if (!$authHeader || !preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
             return $this->respond(['error' => 'Missing or invalid Authorization header'], 401);
         }
 
-        $token = $matches[1];
-
         try {
-            $decoded = JWT::decode($token, new Key($key, 'HS256'));
-            $email = $decoded->email ?? null;
+            $decoded = JWT::decode($matches[1], new Key(getenv('JWT_SECRET'), 'HS256'));
+            $userId = $this->getUserIdByEmail($decoded->email);
 
-            $db = \Config\Database::connect();
-            $userId = $this->getUserIdByEmail($email); 
-            $tableName = "anime_{$userId}";
-
-            $title    = $this->request->getVar('title');
-            $type     = $this->request->getVar('type');
-            $seasons  = $this->request->getVar('seasons');
-            $episodes = $this->request->getVar('episodes');
-            $watched  = $this->request->getVar('watched');
-            $status   = $this->request->getVar('status');
-            $image    = $this->request->getFile('image');
-
-            $imageName = null;
-            if ($image && $image->isValid() && !$image->hasMoved()) {
-                $imageName = $image->getRandomName();
-                $image->move('uploads/anime', $imageName);
-            }
-
-            $builder = $db->table($tableName);
-            $builder->insert([
-                'title'    => $title,
-                'type'     => $type,
-                'image'    => $imageName,
-                'seasons'  => $seasons,
-                'episodes' => $episodes,
-                'watched'  => $watched,
-                'status'   => $status,
+            $validation = \Config\Services::validation();
+            $validation->setRules([
+                'title'    => 'required|max_length[255]',
+                'type'     => 'permit_empty|max_length[50]',
+                'seasons'  => 'permit_empty|integer',
+                'episodes' => 'permit_empty|integer',
+                'watched'  => 'permit_empty|integer',
+                'status'   => 'permit_empty|max_length[50]',
+                'image'    => 'uploaded[image]|max_size[image,2048]|is_image[image]|mime_in[image,image/jpg,image/jpeg,image/png]'
             ]);
 
+            if (!$validation->withRequest($this->request)->run()) {
+                return $this->respond(['errors' => $validation->getErrors()], 400);
+            }
+
+            $image = $this->request->getFile('image');
+            if (!$image->isValid()) {
+                return $this->respond(['error' => 'Invalid image upload'], 400);
+            }
+
+            $newName = $image->getRandomName();
+            if (!$image->move(WRITEPATH . 'uploads/anime', $newName)) {
+                return $this->respond(['error' => 'Failed to save image'], 500);
+            }
+
+            $data = [
+                'title'    => esc($this->request->getVar('title')),
+                'type'     => esc($this->request->getVar('type')),
+                'seasons'  => (int)$this->request->getVar('seasons'),
+                'episodes' => (int)$this->request->getVar('episodes'),
+                'watched'  => (int)$this->request->getFile('watched'),
+                'status'   => esc($this->request->getVar('status')),
+                'image'    => $newName
+            ];
+
+            $db = new Anime();
+            $db->setTable("if037599865_dev_anime.anime_{$userId}");
+            if (!$db->insert($data)) {
+                @unlink(WRITEPATH . 'uploads/anime/' . $newName);
+                throw new \RuntimeException('Failed to insert anime record');
+            }
+
             return $this->respond(['message' => 'Anime added successfully!'], 200);
-        } 
-        
-        catch (\Exception $e) {
-            return $this->respond(['error' => 'Invalid token'], 401);
-            
+
+        } catch (\Exception $e) {
+            log_message('error', 'Anime creation failed: ' . $e->getMessage());
+            return $this->respond(['error' => 'Failed to process request'], 500);
         }
     }
 
     private function getUserIdByEmail($email)
     {
-        $userModel = new \App\Models\AuthUser();
+        $userModel = new AuthUser();
         $user = $userModel->where('email', $email)->first();
         return $user['id'] ?? null;
     }
