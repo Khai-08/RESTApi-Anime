@@ -4,7 +4,7 @@ namespace App\Models;
 
 use CodeIgniter\Model;
 
-class AnimeModel extends Model
+class Anime extends Model
 {
     protected $table      = 'anime';
     protected $primaryKey = 'id';
