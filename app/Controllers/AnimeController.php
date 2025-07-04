@@ -29,7 +29,10 @@ class AnimeController extends ResourceController
                 'episodes' => 'permit_empty|integer',
                 'watched'  => 'permit_empty|integer',
                 'status'   => 'permit_empty|max_length[50]',
-                'image'    => 'uploaded[image]|max_size[image,2048]|is_image[image]|mime_in[image,image/jpg,image/jpeg,image/png]'
+                'image'    => [
+                    'rules' => 'uploaded[image]|max_size[image,2048]|is_image[image]',
+                    'label' => 'Image'
+                ]
             ]);
 
             if (!$validation->withRequest($this->request)->run()) {
@@ -37,37 +40,42 @@ class AnimeController extends ResourceController
             }
 
             $image = $this->request->getFile('image');
-            if (!$image->isValid()) {
-                return $this->respond(['error' => 'Invalid image upload'], 400);
+            $uploadPath = WRITEPATH . "uploads/anime_user_$userId";
+            if (!is_dir($uploadPath)) {
+                mkdir($uploadPath, 0755, true);
+            }
+            
+            $ext = $image->getClientExtension();
+            $tempName = 'temp_' . time() . ".$ext";
+            if (!$image->move($uploadPath, $tempName)) {
+                throw new RuntimeException('Failed to save image');
             }
 
-            $newName = $image->getRandomName();
-            if (!$image->move(WRITEPATH . 'uploads/anime', $newName)) {
-                return $this->respond(['error' => 'Failed to save image'], 500);
-            }
-
-            $data = [
+            $db = new Anime();
+            $db->setTable("anime_user_{$userId}");            
+            $animeId = $db->insert([
                 'title'    => esc($this->request->getVar('title')),
                 'type'     => esc($this->request->getVar('type')),
                 'seasons'  => (int)$this->request->getVar('seasons'),
                 'episodes' => (int)$this->request->getVar('episodes'),
-                'watched'  => (int)$this->request->getFile('watched'),
+                'watched'  => (int)$this->request->getVar('watched'),
                 'status'   => esc($this->request->getVar('status')),
-                'image'    => $newName
-            ];
+                'image'    => ''
+            ]);
 
-            $db = new Anime();
-            $db->setTable("if037599865_dev_anime.anime_{$userId}");
-            if (!$db->insert($data)) {
-                @unlink(WRITEPATH . 'uploads/anime/' . $newName);
-                throw new \RuntimeException('Failed to insert anime record');
+            if (!$animeId) {
+                @unlink("$uploadPath/$tempName");
+                throw new RuntimeException('Database insert failed');
             }
 
-            return $this->respond(['message' => 'Anime added successfully!'], 200);
+            $finalName = "$animeId.$ext";
+            rename("$uploadPath/$tempName", "$uploadPath/$finalName");            
+            $db->update($animeId, ['image' => "anime_user_$userId/$finalName"]);
+            return $this->respond(['message' => 'Anime created successfully'], 201);
 
         } catch (\Exception $e) {
             log_message('error', 'Anime creation failed: ' . $e->getMessage());
-            return $this->respond(['error' => 'Failed to process request'], 500);
+            return $this->respond(['error' => $e->getMessage()], 500);
         }
     }
 
